@@ -6,7 +6,7 @@ PIDD is a lightweight, modular defense layer against prompt injection. It operat
 
 ## What It Does
 
-PIDD sits between untrusted input and an LLM. At its simplest, it reorders the sequence of sentences or list items — each sentence stays internally intact, but their order relative to each other is randomized. This breaks the cross-sentence syntactic structure that prompt injections depend on. Alongside the shuffled input, it receives a short description of what the content is expected to be (for example: *"unknown email to a repair shop, subject line X"*). A dedicated PIDD model reads both and returns a single decision: **go**, **no**, or **clarify**.
+PIDD sits between untrusted input and an LLM. At its simplest, it shuffles the words within each sentence or list item — the sequence of sentences stays unchanged, but the words inside each one are randomly reordered so they never appear in their original order. This breaks the syntactic structure that prompt injections depend on. Alongside the shuffled input, it receives a short description of what the content is expected to be (for example: *"unknown email to a repair shop, subject line X"*). A dedicated PIDD model reads both and returns a single decision: **go**, **no**, or **clarify**.
 
 Additional hardening mechanisms can be layered on incrementally for higher-risk contexts.
 
@@ -36,8 +36,8 @@ Untrusted input
 
 ### Baseline — always on
 
-**Sentence-order shuffling**
-The order of sentences and list items is randomized. Each sentence remains internally intact — only the sequence relative to other sentences changes. This breaks the cross-sentence dependency chain that injections require while preserving all content for detection.
+**Word-order shuffling**
+The words within each sentence or list item are randomly reordered — never in their original sequence. Sentence boundaries are preserved, so the structure of the document remains intact while the syntactic coherence inside each unit is broken. This destroys the dependency chain injections require while keeping all tokens visible for detection.
 
 ### Hardening — enable as needed
 
@@ -89,11 +89,11 @@ A successful injection needs:
 
 Detection operates order-independently. Keywords, semantic clusters, and context deviations are equally visible in shuffled text as in the original.
 
-### Why Sentence-Order Shuffling Works
+### Why Word-Order Shuffling Works
 
-Natural language is low-entropy — successive sentences are strongly correlated, and a coherent instruction relies on this continuity to build meaning across multiple steps. The attention mechanism uses positional encodings to track these sequential relationships when synthesizing a multi-sentence input into a coherent interpretation.
+Natural language is low-entropy — successive tokens are strongly correlated, and the conditional probability P(w_i | w_1…w_{i-1}) is substantially higher than the marginal P(w_i). The attention mechanism relies precisely on this correlation when synthesizing tokens into a coherent interpretation.
 
-Randomizing sentence order collapses these cross-sentence dependencies:
+Randomly reordering the words within each sentence collapses these dependencies:
 - attention entropy increases
 - individual instruction heads cannot focus
 - attention mass disperses, and no single path accumulates sufficient weight to trigger a policy shift
