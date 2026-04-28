@@ -56,6 +56,9 @@ If the input contains domains, their reputation is verified via API. An unknown 
 **Statistical vocabulary distribution**
 A baseline vocabulary profile is built for the deployment context (e.g. typical repair shop emails). Each input is compared against this profile — a significant statistical deviation flags the input as suspicious even if no individual keyword matches. This complements keyword-based detection: BoW asks *what words are present*, distribution asks *does this look like it belongs here at all*. Implementation is lightweight: relative word frequencies compared against a baseline using cosine distance or KL-divergence, no model required.
 
+**Unintelligible input rejection**
+Input that falls below a minimum readability or coherence threshold can be rejected outright. In most deployment contexts, legitimate content is human-readable plain text. Encoding, unusual character distributions, or high proportions of non-standard characters are themselves injection signals and warrant immediate rejection without further analysis.
+
 ---
 
 ## PIDD Response Types
@@ -163,18 +166,36 @@ This mirrors the logic of hardware co-processors: the CPU and GPU do not negotia
 
 This is one recommended configuration, not the only valid one. Single-LLM deployments with PIDD applied selectively remain entirely viable depending on the use case.
 
+### Performance Advantage
+
+PIDD is not only a safety layer — it is also a role-separation strategy.
+
+When the Agent LLM is forced to solve the task and police the input at the same time, part of its context and reasoning budget is spent on defensive self-monitoring. This can dilute task performance, increase prompt complexity, and create conflicting behavioral pressures.
+
+In the dual-LLM setup, the agent can focus entirely on task execution while PIDD focuses entirely on risk evaluation. The agent prepares the best possible response or action in non-committing mode, and the code-level gate decides whether that action may be executed.
+
+This separation improves the system in four ways:
+
+- The agent prompt can remain shorter and cleaner.
+- The agent is optimized for task quality, not defensive paranoia.
+- The PIDD model is optimized for detection, not task completion.
+- Failures are easier to diagnose because acting, guarding, and gating are separate components.
+
+The agent thinks freely, the guard evaluates independently, and code enforces the boundary.
+
 ---
 
 ## Limitations
 
-- **Targeted bypasses** — injections that avoid all trigger vocabulary can slip past BoW detection. PIDD reduces the attack surface; it does not eliminate it.
+- **Instruction-tuned models** — many production models are trained to recognize and follow intent even from fragmented or imperfect input. This may reduce the effectiveness of word-order shuffling alone, because the model may pattern-match a command without relying on full syntactic coherence. This is a calibration signal, not a fatal flaw: testing against the target model determines how much protection shuffling provides, and additional hardening mechanisms can be layered on accordingly.
+- **Targeted bypasses** — injections that avoid obvious trigger vocabulary may slip past keyword- or BoW-based detection. PIDD reduces the attack surface; it does not eliminate it.
 - **Strong reasoners** — capable models may partially reconstruct intent from shuffled input, particularly if prompted to try. Protection level varies by model.
-- **Context model tuning** — the expected content description requires some calibration per deployment context. Wrong expectations produce false positives.
+- **Context model tuning** — the expected content description requires calibration per deployment context. Wrong expectations can produce false positives or false negatives.
 - **Short injections** — very brief injections may survive shuffling with structure partially intact.
-
+- **Obfuscated or encoded payloads** — attacks may hide intent through encoding, unusual formatting, homoglyphs, spacing tricks, or multilingual phrasing. These require additional normalization and detection layers. However, heavily obfuscated input is itself a detectable anomaly — in most legitimate contexts, such content would never appear naturally, making rejection on readability grounds a viable and simple countermeasure.
 - **Agent context poisoning** — if the agent operates across multiple turns, a poisoned input may persist in its context even after the gate blocks the action. The recommended response to a `no` decision is therefore not just blocking the immediate action but terminating the session and notifying a human operator. The agent's internal state after a confirmed injection attempt should not be trusted.
 
-PIDD is a strong first-layer defense, not a standalone solution. It is most effective as part of a layered security approach.
+PIDD should be treated as an adjustable first-layer defense, not an absolute protection mechanism. It is most effective as part of a layered security approach.
 
 ---
 
