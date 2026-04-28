@@ -6,7 +6,7 @@ PIDD is a lightweight, modular defense layer against prompt injection. It operat
 
 ## What It Does
 
-PIDD sits between untrusted input and an LLM. At its simplest, it shuffles the words within each sentence or list item — the sequence of sentences stays unchanged, but the words inside each one are randomly reordered so they never appear in their original order. This breaks the syntactic structure that prompt injections depend on. Alongside the shuffled input, it receives a short description of what the content is expected to be (for example: *"unknown email to a repair shop, subject line X"*). A dedicated PIDD model reads both and returns a single decision: **go**, **no**, or **clarify**.
+PIDD sits between untrusted input and an LLM. At its simplest, it divides untrusted input into overlapping chunks of roughly 50–100 words with randomized boundaries, shuffles the words within each chunk, and passes the result to a dedicated PIDD model alongside a short description of what the content is expected to be (for example: *"unknown email to a repair shop, subject line X"*). The PIDD model evaluates each chunk independently, then assesses the full set for cross-chunk patterns, and returns a decision: **go**, **no**, or **clarify**.
 
 Additional hardening mechanisms can be layered on incrementally for higher-risk contexts.
 
@@ -18,11 +18,16 @@ Additional hardening mechanisms can be layered on incrementally for higher-risk 
 Untrusted input
 + context hint ("unknown email, subject: X")
         ↓
-  [Shuffle by unit]
-  sentence / list item / paragraph
+  [Split into overlapping chunks]
+  randomized boundaries, ~50-100 words each
+        ↓
+  [Shuffle words within each chunk]
         ↓
   [PIDD LLM]
-  shuffled input + expected content description
+  [chunk 1] [chunk 2] [chunk 3] ...
+  + expected content description
+        ↓
+  per-chunk evaluation + cross-chunk pattern check
         ↓
    go / no / clarify
         ↓
@@ -36,19 +41,13 @@ Untrusted input
 
 ### Baseline — always on
 
-**Word-order shuffling**
-The words within each sentence or list item are randomly reordered — never in their original sequence. Sentence boundaries are preserved, so the structure of the document remains intact while the syntactic coherence inside each unit is broken. This destroys the dependency chain injections require while keeping all tokens visible for detection.
+**Word-order shuffling with overlapping chunks**
+The input is split into overlapping chunks of roughly 50–100 words. Chunk boundaries are randomized — they do not align with sentence boundaries — so an attacker cannot predict where one chunk ends and another begins. The words within each chunk are randomly reordered, never in their original sequence. Chunks overlap so that any payload spanning a boundary falls inside at least two chunks. The PIDD model evaluates each chunk independently, then performs a cross-chunk assessment to detect distributed payloads that appear benign in isolation.
 
 ### Hardening — enable as needed
 
-**Sentence-level risk classification**
-Before shuffling, each sentence is evaluated for injection risk. Aggressive mechanisms are applied only to high-risk segments, leaving benign content intact. Protects utility and reduces unnecessary processing.
-
 **Noise injection**
 Unknown words are added to the sequence to increase attention entropy and dilute any residual semantic signal. The added tokens are tracked and can be excluded from downstream analysis.
-
-**Smaller processing units**
-Text is processed in chunks (e.g. 1000 characters) for finer-grained analysis and better explainability.
 
 **Domain reputation check**
 If the input contains domains, their reputation is verified via API. An unknown or low-reputation domain is a strong signal at low cost.
@@ -71,7 +70,7 @@ The PIDD model returns one of three responses:
 | `no` | Injection detected | Input blocked |
 | `clarify` | Ambiguous segment detected | Code requests specific sentence or unit in plain text for further inspection |
 
-The `clarify` response allows the system to handle edge cases without hard blocking. When a specific segment is suspicious but context is insufficient to decide, the PIDD model can request that the code surface that segment in plain text — either for re-evaluation, logging, or human review. This keeps the pipeline moving for benign content while flagging what needs attention.
+The `clarify` response allows the system to handle edge cases without hard blocking. When a specific segment is suspicious but context is insufficient to decide, the PIDD model can request that the code surface a small fragment of that segment — no more than 10–15 words — for re-evaluation or human review. The fragment is kept deliberately short: long enough to provide context, short enough that it cannot form a coherent injection on its own. This ensures that the clarify path cannot itself be used as an attack vector.
 
 ---
 
@@ -96,14 +95,13 @@ Detection operates order-independently. Keywords, semantic clusters, and context
 
 Natural language is low-entropy — successive tokens are strongly correlated, and the conditional probability P(w_i | w_1…w_{i-1}) is substantially higher than the marginal P(w_i). The attention mechanism relies precisely on this correlation when synthesizing tokens into a coherent interpretation.
 
-Randomly reordering the words within each sentence collapses these dependencies:
+Shuffling words within overlapping chunks with randomized boundaries collapses these dependencies across the entire input — not just within individual sentences:
 - attention entropy increases
 - individual instruction heads cannot focus
 - attention mass disperses, and no single path accumulates sufficient weight to trigger a policy shift
+- distributed payloads split across multiple sentences lose their structure because chunk boundaries do not align with sentence boundaries
 
-The token embeddings themselves are preserved. The model **sees** the words but cannot **follow** the command. This is the core property: the attack's structural prerequisites are significantly weakened while the semantic content remains visible for detection and monitoring.
-
-An important caveat: strong reasoning models have shown some capacity to reconstruct intent even from disordered input, particularly if actively attempting to do so. The degree of protection therefore varies by model and context — which is precisely why empirical testing is necessary.
+The token embeddings themselves are preserved. The model **sees** the words but cannot **follow** the command. This is the core property: the attack's structural prerequisites are eliminated while the semantic content remains visible for detection and monitoring.
 
 ### Empirical Caveat
 
@@ -187,11 +185,12 @@ The agent thinks freely, the guard evaluates independently, and code enforces th
 
 ## Limitations
 
-- **Instruction-tuned models** — many production models are trained to recognize and follow intent even from fragmented or imperfect input. This may reduce the effectiveness of word-order shuffling alone, because the model may pattern-match a command without relying on full syntactic coherence. This is a calibration signal, not a fatal flaw: testing against the target model determines how much protection shuffling provides, and additional hardening mechanisms can be layered on accordingly.
+- **Instruction-tuned models** — many production models are trained to recognize and follow intent even from fragmented or imperfect input. This may reduce the effectiveness of word-order shuffling alone, because the model may pattern-match a command without relying on full syntactic coherence. However, shuffling across multi-sentence chunks with randomized boundaries produces a level of disorder that makes extracting a coherent command extremely difficult even for models trained to follow fragmented instructions.
 - **Targeted bypasses** — injections that avoid obvious trigger vocabulary may slip past keyword- or BoW-based detection. PIDD reduces the attack surface; it does not eliminate it.
 - **Strong reasoners** — capable models may partially reconstruct intent from shuffled input, particularly if prompted to try. Protection level varies by model.
-- **Context model tuning** — the expected content description requires calibration per deployment context. Wrong expectations can produce false positives or false negatives.
+- **False positives** — certain content types such as security documentation, penetration testing reports, or fiction containing imperative dialogue may trigger false positives. The context hint mitigates this by allowing the PIDD model to evaluate whether flagged content fits the expected domain, but it does not eliminate the risk entirely.
 - **Short injections** — very brief injections may survive shuffling with structure partially intact.
+- **Distributed payloads** — an injection split across multiple sentences is addressed by overlapping chunks with randomized boundaries, but sufficiently short fragments may still survive if they fall entirely within a single chunk. Cross-chunk assessment by the PIDD model is the primary mitigation.
 - **Obfuscated or encoded payloads** — attacks may hide intent through encoding, unusual formatting, homoglyphs, spacing tricks, or multilingual phrasing. These require additional normalization and detection layers. However, heavily obfuscated input is itself a detectable anomaly — in most legitimate contexts, such content would never appear naturally, making rejection on readability grounds a viable and simple countermeasure.
 - **Agent context poisoning** — if the agent operates across multiple turns, a poisoned input may persist in its context even after the gate blocks the action. The recommended response to a `no` decision is therefore not just blocking the immediate action but terminating the session and notifying a human operator. The agent's internal state after a confirmed injection attempt should not be trusted.
 
@@ -204,10 +203,11 @@ PIDD should be treated as an adjustable first-layer defense, not an absolute pro
 PIDD does not prescribe a specific implementation. The core shuffle-and-gate logic is a linear transformation with no GPU requirement — suitable for high-throughput environments. PIDD is stateless — each evaluation is independent, with no accumulated state that could be poisoned or manipulated over time.
 
 A minimal single-LLM integration requires:
-1. A shuffle function operating on sentence or paragraph units
-2. A context hint describing expected input
-3. A PIDD evaluation call returning `go` / `no` / `clarify`
-4. A code-level gate before any action is executed
+1. A chunking function that splits input into overlapping segments of ~50–100 words with randomized boundaries
+2. A shuffle function applied within each chunk
+3. A context hint describing expected input
+4. A PIDD evaluation call returning `go` / `no` / `clarify` — per chunk and for the full set
+5. A code-level gate before any action is executed
 
 The dual-LLM architecture adds parallel execution and clean role separation but is not required for basic protection. Start minimal and add hardening layers as the threat model demands.
 
