@@ -6,7 +6,7 @@ PIDD is a lightweight, modular defense layer against prompt injection. It operat
 
 ## What It Does
 
-PIDD sits between untrusted input and an LLM. At its simplest, it shuffles incoming content in small units — one sentence or list item at a time — breaking the syntactic structure that prompt injections depend on. Alongside the shuffled input, it receives a short description of what the content is expected to be (for example: *"unknown email to a repair shop, subject line X"*). A dedicated PIDD model reads both and returns a single decision: **go**, **no**, or **clarify**.
+PIDD sits between untrusted input and an LLM. At its simplest, it reorders the sequence of sentences or list items — each sentence stays internally intact, but their order relative to each other is randomized. This breaks the cross-sentence syntactic structure that prompt injections depend on. Alongside the shuffled input, it receives a short description of what the content is expected to be (for example: *"unknown email to a repair shop, subject line X"*). A dedicated PIDD model reads both and returns a single decision: **go**, **no**, or **clarify**.
 
 Additional hardening mechanisms can be layered on incrementally for higher-risk contexts.
 
@@ -36,8 +36,8 @@ Untrusted input
 
 ### Baseline — always on
 
-**Word-order shuffling**
-Input is shuffled in small units — sentence or list item at a time. This breaks the syntactic dependency chain that injections require while preserving all tokens for detection.
+**Sentence-order shuffling**
+The order of sentences and list items is randomized. Each sentence remains internally intact — only the sequence relative to other sentences changes. This breaks the cross-sentence dependency chain that injections require while preserving all content for detection.
 
 ### Hardening — enable as needed
 
@@ -89,11 +89,11 @@ A successful injection needs:
 
 Detection operates order-independently. Keywords, semantic clusters, and context deviations are equally visible in shuffled text as in the original.
 
-### Why Word Order Shuffling Works
+### Why Sentence-Order Shuffling Works
 
-Natural language is low-entropy — successive tokens are strongly correlated, and the conditional probability P(w_i | w_1…w_{i-1}) is substantially higher than the marginal P(w_i). The attention mechanism relies precisely on this correlation when synthesizing tokens into a coherent interpretation.
+Natural language is low-entropy — successive sentences are strongly correlated, and a coherent instruction relies on this continuity to build meaning across multiple steps. The attention mechanism uses positional encodings to track these sequential relationships when synthesizing a multi-sentence input into a coherent interpretation.
 
-A random permutation collapses the conditional distribution toward the marginal:
+Randomizing sentence order collapses these cross-sentence dependencies:
 - attention entropy increases
 - individual instruction heads cannot focus
 - attention mass disperses, and no single path accumulates sufficient weight to trigger a policy shift
@@ -133,7 +133,7 @@ The most effective deployment of PIDD separates concerns at the structural level
 Two models run in parallel and receive the same input simultaneously:
 
 **Agent LLM**
-The primary model optimized purely for task performance. It does not carry defensive prompt engineering or instruction-hierarchy guardrails — these would constrain its effectiveness for no structural gain. It prepares its reasoning and proposed actions freely.
+The primary model optimized purely for task performance. It does not carry defensive prompt engineering or instruction-hierarchy guardrails — these would constrain its effectiveness for no structural gain. It prepares its reasoning and proposed actions freely, but operates in a non-committing mode until the gate clears: no tool calls, persistent memory writes, external API calls, file writes, or user-visible actions occur until the PIDD model returns `go`.
 
 **PIDD LLM**
 A dedicated model running PIDD mechanisms. It reads the same input, evaluates it for injection risk, and returns `go`, `no`, or `clarify`. The agent is code-level gated — it cannot execute actions until the PIDD model clears the input.
