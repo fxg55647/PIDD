@@ -53,6 +53,9 @@ Text is processed in chunks (e.g. 1000 characters) for finer-grained analysis an
 **Domain reputation check**
 If the input contains domains, their reputation is verified via API. An unknown or low-reputation domain is a strong signal at low cost.
 
+**Statistical vocabulary distribution**
+A baseline vocabulary profile is built for the deployment context (e.g. typical repair shop emails). Each input is compared against this profile — a significant statistical deviation flags the input as suspicious even if no individual keyword matches. This complements keyword-based detection: BoW asks *what words are present*, distribution asks *does this look like it belongs here at all*. Implementation is lightweight: relative word frequencies compared against a baseline using cosine distance or KL-divergence, no model required.
+
 ---
 
 ## PIDD Response Types
@@ -175,7 +178,7 @@ PIDD is a strong first-layer defense, not a standalone solution. It is most effe
 
 ## Usage / Integration Notes
 
-PIDD does not prescribe a specific implementation. The core shuffle-and-gate logic is a linear transformation with no GPU requirement — suitable for high-throughput environments.
+PIDD does not prescribe a specific implementation. The core shuffle-and-gate logic is a linear transformation with no GPU requirement — suitable for high-throughput environments. PIDD is stateless — each evaluation is independent, with no accumulated state that could be poisoned or manipulated over time.
 
 A minimal single-LLM integration requires:
 1. A shuffle function operating on sentence or paragraph units
@@ -193,4 +196,4 @@ Ideas, feedback, and collaboration welcome.
 
 - **LinkedIn:** [your LinkedIn URL]
 - **X:** [your X handle]
-- **Email:** [your email]
+- **Email:** teemun.geemeili@gmail.com
