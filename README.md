@@ -172,6 +172,8 @@ This is one recommended configuration, not the only valid one. Single-LLM deploy
 - **Context model tuning** — the expected content description requires some calibration per deployment context. Wrong expectations produce false positives.
 - **Short injections** — very brief injections may survive shuffling with structure partially intact.
 
+- **Agent context poisoning** — if the agent operates across multiple turns, a poisoned input may persist in its context even after the gate blocks the action. The recommended response to a `no` decision is therefore not just blocking the immediate action but terminating the session and notifying a human operator. The agent's internal state after a confirmed injection attempt should not be trusted.
+
 PIDD is a strong first-layer defense, not a standalone solution. It is most effective as part of a layered security approach.
 
 ---
