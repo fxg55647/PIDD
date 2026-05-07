@@ -269,10 +269,19 @@ The dual-LLM architecture adds parallel execution and clean role separation but 
 
 ---
 
+## Built On PIDD
+
+[Gauntlet](https://github.com/fxg55647/gauntlet) is a modular security 
+proxy built on PIDD. It wraps the shuffle-and-gate logic into a drop-in 
+API proxy with configurable modules, decision modes, and escalation 
+pipelines — deployable in front of any LLM with a single line change.
+
+---
+
 ## Contact
 
 Ideas, feedback, and collaboration welcome.
 
-- **LinkedIn:** [your LinkedIn URL]
-- **X:** [your X handle]
+- **LinkedIn:** https://www.linkedin.com/in/teemu-lantta-90440366/
+- **X:** @TeemuLantta
 - **Email:** teemun.geemeili@gmail.com
